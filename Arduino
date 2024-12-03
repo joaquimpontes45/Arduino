@@ -1,0 +1,143 @@
+#include <WiFi.h>  // Use WiFi.h para ESP32
+#include <HTTPClient.h>
+#include <DHT.h>
+
+// Defina as credenciais do Wi-Fi
+const char* ssid = "Joaquim";        // Substitua com seu SSID
+const char* password = "123456789";  // Substitua com sua senha Wi-Fi
+
+// Definições do DHT
+#define DHTPIN 5       // GPIO conectado ao DATA do DHT22
+#define DHTTYPE DHT22  // Tipo de sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+const String apiUrl = "https://ecowater.etegaranhuns.com.br/dados";
+
+// Pinos de controle
+int pinoLigarBomba = 17;          // Porta do relé da bomba
+int pinoLigarArcodicionado = 16;  // Porta do relé do ar condicionado
+int pinoBuzzer = 4;               // Pino do buzzer
+int umidade_solo = 34;            // Pino do sensor de umidade do solo
+int sensor_agua_aspesor = 2;      // Pino do sensor de água
+
+float status_real_temp = 0;
+float status_umidade = 0;
+
+void setup() {
+  Serial.begin(9600);
+
+  // Conecta no WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Conectando ao WiFi...");
+  }
+  Serial.println("Conectado ao WiFi!");
+
+  // Configuração dos pinos
+  pinMode(umidade_solo, OUTPUT);  // Mudado para INPUT
+  pinMode(sensor_agua_aspesor, OUTPUT); // Mudado para INPUT
+  pinMode(pinoLigarBomba, OUTPUT);
+  pinMode(pinoLigarArcodicionado, OUTPUT);
+  pinMode(pinoBuzzer, OUTPUT);
+
+  dht.begin();  // Inicializa o sensor DHT22
+}
+
+void loop() {
+  // Fazendo uma requisição GET para o endpoint /status_bomba
+  HTTPClient http;
+  http.begin(apiUrl);                 // Inicia a requisição com a URL da API
+  int httpResponseCode = http.GET();  // Envia o GET
+
+  if (httpResponseCode == 200) {
+    // A resposta da API foi bem-sucedida
+    String payload = http.getString();  // Obtém o corpo da resposta (em formato JSON)
+    Serial.println("Resposta da API:");
+    Serial.println(payload);  // Exibe a resposta no Serial Monitor
+
+    // Buscar "status_bomba" no payload
+    int posStatusBomba = payload.indexOf("\"status_bomba\":");
+    if (posStatusBomba != -1) {
+      // Pegue o valor imediatamente após ":"
+      String status_bomba_str = payload.substring(posStatusBomba + 15, posStatusBomba + 16);  // 15 é o comprimento de "\"status_bomba\":" 
+      int status_bomba = status_bomba_str.toInt();                                            // Converte para inteiro
+
+      Serial.print("status_bomba: ");
+      Serial.println(status_bomba); // Adicionando para verificar
+
+      // Verifica o valor de status_bomba
+      if (status_bomba == 1) {
+        Serial.println("Entrou no if - Ligando Sistema");
+        iniciarSistema(); // Executa a função quando a bomba estiver ligada
+      } else if (status_bomba == 0) {
+        Serial.println("Entrou no elif - Desligando Sistema");
+        desligarSistema(); // Executa a função quando a bomba estiver desligada
+      }
+    } else {
+      Serial.println("Não encontrou 'status_bomba' no JSON");
+    }
+  } else {
+    Serial.print("Erro na requisição HTTP: ");
+    Serial.println(httpResponseCode);
+  }
+
+  http.end();   // Finaliza a requisição HTTP
+  delay(1000);  // Aguarda 1 segundo antes de realizar outra requisição
+}
+
+void iniciarSistema() {
+  float temperatura_ambiente = dht.readTemperature();
+  if (isnan(temperatura_ambiente)) {
+    Serial.println("Falha na leitura do sensor de temperatura!");
+    return;
+  }
+
+  Serial.print("Temperatura: ");
+  Serial.println(temperatura_ambiente);
+
+  status_real_temp = temperatura_ambiente;
+  if (status_real_temp >= 30.00) {
+    digitalWrite(pinoLigarArcodicionado, LOW);  // Desliga o AC
+    digitalWrite(pinoLigarBomba, HIGH);         // Liga a bomba
+  } else {
+    digitalWrite(pinoLigarArcodicionado, HIGH);  // Liga o AC
+    digitalWrite(pinoLigarBomba, LOW);           // Desliga a bomba
+  }
+
+  status_umidade = analogRead(umidade_solo);
+  float umidadeSoloPorcentagem = status_umidade / 5;  // Converte para porcentagem
+  if (umidadeSoloPorcentagem >= 70 && umidadeSoloPorcentagem <= 90) {
+    digitalWrite(pinoLigarBomba, LOW);  // Desliga a bomba
+  } else if (umidadeSoloPorcentagem < 70) {
+    digitalWrite(pinoLigarBomba, HIGH);  // Liga a bomba
+  } else {
+    digitalWrite(pinoLigarBomba, LOW);  // Desliga a bomba
+  }
+
+  Serial.print("Porcentagem sensor solo: ");
+  Serial.println(umidadeSoloPorcentagem);
+
+  float sensor_agua = analogRead(sensor_agua_aspesor);
+  float sensor_aguaPorcentagem2 = (sensor_agua / 1023.0) * 100;
+  Serial.print("Umidade: ");
+  Serial.println(sensor_aguaPorcentagem2);
+
+  // Controle do buzzer e da bomba baseado no sensor de água
+  if (sensor_aguaPorcentagem2 <= 10 && umidadeSoloPorcentagem < 70) {
+    digitalWrite(pinoBuzzer, HIGH);     // Liga o buzzer
+    digitalWrite(pinoLigarBomba, LOW);  // Desliga a bomba
+    delay(1000);                        // Espera por 1 segundo
+    digitalWrite(pinoBuzzer, LOW);      // Desliga o buzzer
+  } else if (sensor_aguaPorcentagem2 == 100) {
+    digitalWrite(pinoLigarBomba, HIGH);  // Liga a bomba
+  }
+
+  delay(1000);  // Aguarda 1 segundo antes de próxima execução
+}
+
+void desligarSistema() {
+  digitalWrite(pinoLigarBomba, LOW);  // Desliga a bomba
+  digitalWrite(pinoLigarArcodicionado, HIGH);  // Liga o ar condicionado
+  Serial.println("Sistema desligado!");
+}
