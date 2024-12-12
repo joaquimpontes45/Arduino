@@ -106,7 +106,7 @@ void iniciarSistema() {
 
   status_umidade = analogRead(umidade_solo);
 
-  float umidadeSoloPorcentagem = status_umidade / 5;
+  float umidadeSoloPorcentagem = (status_umidade / 1823.0) * 100;
   if (umidadeSoloPorcentagem >= 70 && umidadeSoloPorcentagem <= 90) {
     digitalWrite(pinoLigarBomba, LOW);
   } else if (umidadeSoloPorcentagem < 70) {
