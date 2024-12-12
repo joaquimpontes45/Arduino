@@ -136,7 +136,7 @@ void iniciarSistema() {
 
     digitalWrite(pinoLigarBomba, HIGH);
   }
-  enviarDados(temperatura_ambiente, sensor_agua_aspesorPorcentagem2);
+  enviarDados(temperatura_ambiente, umidadeSoloPorcentagem);
   delay(1000);
 
 }
